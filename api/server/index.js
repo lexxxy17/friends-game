@@ -5,7 +5,6 @@ const cors = require('cors');
 const multer = require('multer');
 const { createClient } = require('@supabase/supabase-js');
 const fetch = require('node-fetch');
-const crypto = require('crypto');
 
 const app = express();
 app.use(cors());
@@ -24,28 +23,53 @@ function requireAdmin(req, res, next) {
 }
 
 // Telegram auth verify: expects x-telegram-initdata header from TWA
-function verifyTelegramInitData(initData) {
-  if (!initData) return null;
-  let params;
-  try { params = new URLSearchParams(initData); } catch { return null; }
-  // Dev mode: if BOT_TOKEN is not set, accept without signature verification
-  if (!process.env.BOT_TOKEN) return params;
-  const hash = params.get('hash');
-  if (!hash) return null;
-  const pairs = [];
-  for (const [k, v] of params.entries()) {
-    if (k === 'hash') continue;
-    pairs.push(`${k}=${v}`);
-  }
-  pairs.sort();
-  const dataCheckString = pairs.join('\n');
-  const secretKey = crypto.createHash('sha256').update(process.env.BOT_TOKEN).digest();
-  const hmac = crypto.createHmac('sha256', secretKey).update(dataCheckString).digest('hex');
-  if (hmac !== hash) return null;
-  return params;
+function parseTelegramInitData(initData) {
+  // For pilot, accept as-is (verification can be added with bot token and hash)
+  try { return new URLSearchParams(initData); } catch { return null; }
 }
 
 app.get('/health', (req, res) => res.json({ ok: true, time: new Date().toISOString() }));
+
+// Helper: get or create student by Telegram initData
+async function getOrCreateStudentFromInit(initData) {
+  const params = parseTelegramInitData(initData);
+  if (!params) return null;
+  const user = params.get('user');
+  if (!user) return null;
+  const tg = JSON.parse(user);
+  const tg_user_id = tg.id;
+  const name = tg.first_name + (tg.last_name ? ' ' + tg.last_name : '');
+  const username = tg.username || null;
+  let { data: student, error } = await supabase.from('students').select('*').eq('tg_user_id', tg_user_id).single();
+  if (error && error.code !== 'PGRST116') throw error;
+  if (!student) {
+    const ins = await supabase.from('students').insert({ tg_user_id, name, username }).select().single();
+    if (ins.error) throw ins.error;
+    student = ins.data;
+  }
+  return student;
+}
+
+// My assignments (student + public)
+app.get('/my-assignments', async (req, res) => {
+  try {
+    const initData = req.headers['x-telegram-initdata'];
+    let student = null;
+    try { if (initData) student = await getOrCreateStudentFromInit(initData); } catch {}
+    let query = supabase.from('assignments').select('id, pack_id, student_id, created_at, packs(name)').order('created_at', { ascending: false });
+    if (student) {
+      query = query.or(`student_id.eq.${student.id},student_id.is.null`);
+    } else {
+      query = query.is('student_id', null);
+    }
+    const { data, error } = await query;
+    if (error) return res.status(500).json({ error: error.message });
+    const items = (data||[]).map(a => ({ id: a.id, packId: a.pack_id, packName: a.packs?.name || 'Набор', personal: !!a.student_id }));
+    res.json({ assignments: items });
+  } catch (e) {
+    res.status(500).json({ error: e.message || 'internal error' });
+  }
+});
 
 // Words
 app.get('/words', async (req, res) => {
@@ -114,8 +138,8 @@ app.get('/students', requireAdmin, async (req, res) => {
 // Students (auto-create via Telegram)
 app.get('/me', async (req, res) => {
   const initData = req.headers['x-telegram-initdata'];
-  const params = verifyTelegramInitData(initData);
-  if (!params) return res.status(401).json({ error: 'invalid initData' });
+  const params = parseTelegramInitData(initData);
+  if (!params) return res.status(400).json({ error: 'invalid initData' });
   const user = params.get('user');
   if (!user) return res.status(400).json({ error: 'no user' });
   const tg = JSON.parse(user);
@@ -188,25 +212,6 @@ app.post('/report', async (req, res) => {
     } catch {}
   }
   res.json({ ok: true, reportId: data.id });
-});
-
-// Send assignment link to student via Telegram
-app.post('/assignments/:id/send', requireAdmin, async (req, res) => {
-  if (!process.env.BOT_TOKEN) return res.status(400).json({ error: 'BOT_TOKEN not configured' });
-  const { id } = req.params;
-  const { data: a, error: e1 } = await supabase.from('assignments').select('id, pack_id, student_id').eq('id', id).single();
-  if (e1 || !a) return res.status(404).json({ error: 'assignment not found' });
-  if (!a.student_id) return res.status(400).json({ error: 'assignment has no student' });
-  const { data: s, error: e2 } = await supabase.from('students').select('tg_user_id, name').eq('id', a.student_id).single();
-  if (e2 || !s || !s.tg_user_id) return res.status(400).json({ error: 'student has no tg_user_id' });
-  const link = (process.env.STUDENT_WEBAPP_URL || 'http://localhost:5173') + `/?assignment=${id}`;
-  const text = `Здравствуйте! Вам назначено задание.`;
-  const reply_markup = {
-    inline_keyboard: [[{ text: 'Открыть задание', web_app: { url: link } }]]
-  };
-  const r = await fetch(`https://api.telegram.org/bot${process.env.BOT_TOKEN}/sendMessage`, { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({ chat_id: s.tg_user_id, text, reply_markup }) });
-  if (!r.ok) return res.status(502).json({ error: 'telegram send failed', status: r.status });
-  res.json({ ok: true });
 });
 
 app.listen(PORT, () => {

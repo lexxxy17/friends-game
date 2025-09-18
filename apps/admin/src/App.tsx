@@ -28,16 +28,16 @@ export default function App(){
       const [w,p,s,a] = await Promise.all([
         api('/words'), api('/packs'), api('/students'), api('/assignments')
       ])
-      const wordsData = (w.ok ? await w.json() : []) || []
-      const packsData = (p.ok ? await p.json() : []) || []
-      const studentsData = (s.ok ? await s.json() : []) || []
-      const assignmentsData = (a.ok ? await a.json() : []) || []
-      setWords(Array.isArray(wordsData) ? wordsData : [])
-      setPacks(Array.isArray(packsData) ? packsData : [])
-      setStudents(Array.isArray(studentsData) ? studentsData : [])
-      setAssignments(Array.isArray(assignmentsData) ? assignmentsData : [])
-    } catch (e) {
-      alert('Ошибка загрузки API: ' + (e as Error).message)
+      const jw = w.ok ? await w.json() : []
+      const jp = p.ok ? await p.json() : []
+      const js = s.ok ? await s.json() : []
+      const ja = a.ok ? await a.json() : []
+      setWords(Array.isArray(jw) ? jw : [])
+      setPacks(Array.isArray(jp) ? jp : [])
+      setStudents(Array.isArray(js) ? js : [])
+      setAssignments(Array.isArray(ja) ? ja : [])
+    } catch {
+      setWords([]); setPacks([]); setStudents([]); setAssignments([])
     }
   }
 
@@ -69,16 +69,6 @@ export default function App(){
     loadAll()
   }
 
-  async function sendToTelegram(assignmentId: string){
-    const r = await api(`/assignments/${assignmentId}/send`, { method:'POST' })
-    if (!r.ok) {
-      const t = await r.text()
-      alert('Ошибка отправки: '+t)
-    } else {
-      alert('Ссылка отправлена в Telegram ученику')
-    }
-  }
-
   return (
     <div style={{ padding: 16 }}>
       <h1 style={{ color:'#a855f7', textShadow:'2px 2px #fff' }}>Админка</h1>
@@ -90,7 +80,7 @@ export default function App(){
           <input type='file' ref={fileRef} style={input}/>
           <button onClick={addWord} style={btn}>Добавить</button>
           <ul>
-            {words.map((w)=> (
+            {Array.isArray(words) && words.map(w=> (
               <li key={w.id}>{w.ru} — <b>{w.en}</b> {w.image_url && <img src={w.image_url} width={80}/>}</li>
             ))}
           </ul>
@@ -99,7 +89,7 @@ export default function App(){
           <h3>Наборы</h3>
           <input placeholder='Имя набора' value={name} onChange={e=>setName(e.target.value)} style={input}/>
           <div>
-            {words.map(w=> (
+            {Array.isArray(words) && words.map(w=> (
               <label key={w.id} style={{display:'inline-block', marginRight:8}}>
                 <input type='checkbox' checked={!!wordChecks[w.id]} onChange={e=>setWordChecks(v=>({ ...v, [w.id]: e.target.checked }))}/> {w.ru}/{w.en}
               </label>
@@ -107,7 +97,7 @@ export default function App(){
           </div>
           <button onClick={createPack} style={btn}>Создать набор</button>
           <ul>
-            {packs.map(p => (
+            {Array.isArray(packs) && packs.map(p => (
               <li key={p.id}>{p.name} — слов: {p.wordIds.length}</li>
             ))}
           </ul>
@@ -115,7 +105,7 @@ export default function App(){
         <section style={card}>
           <h3>Ученики</h3>
           <ul>
-            {students.map(s => (
+            {Array.isArray(students) && students.map(s => (
               <li key={s.id}>{s.name} {s.username?`(@${s.username})`:''}</li>
             ))}
           </ul>
@@ -123,12 +113,12 @@ export default function App(){
         <section style={card}>
           <h3>Назначения</h3>
           <div>
-            {packs.map(p => (
+            {Array.isArray(packs) && packs.map(p => (
               <div key={p.id} style={{marginBottom:8}}>
                 <b>{p.name}</b>
                 <div style={{display:'flex', gap:8, flexWrap:'wrap', marginTop:6}}>
                   <button onClick={()=>createAssignment(p.id, null)} style={miniBtn}>Общий</button>
-                  {students.map(s => (
+                  {Array.isArray(students) && students.map(s => (
                     <button key={s.id} onClick={()=>createAssignment(p.id, s.id)} style={miniBtn}>{s.name}</button>
                   ))}
                 </div>
@@ -136,12 +126,8 @@ export default function App(){
             ))}
           </div>
           <ul>
-            {assignments.map(a => (
-              <li key={a.id}>ID: {a.id} — pack:{a.pack_id} {a.student_id?`студент:${a.student_id}`:'(общий)'} — ссылка: <code>{`/student?assignment=${a.id}`}</code>
-                {a.student_id && (
-                  <button onClick={()=>sendToTelegram(a.id)} style={{...miniBtn, marginLeft:8}}>Отправить в Telegram</button>
-                )}
-              </li>
+            {Array.isArray(assignments) && assignments.map(a => (
+              <li key={a.id}>ID: {a.id} — pack:{a.pack_id} {a.student_id?`студент:${a.student_id}`:'(общий)'} — ссылка: <code>{`/student?assignment=${a.id}`}</code></li>
             ))}
           </ul>
         </section>

@@ -7,6 +7,7 @@ const API = import.meta.env.VITE_API_URL || 'http://localhost:4000'
 
 export default function App(){
   const [assignmentId, setAssignmentId] = useState<string>('')
+  const [myAssignments, setMyAssignments] = useState<{id:string, packName:string, packId:string, personal:boolean}[]>([])
   const [packName, setPackName] = useState<string>('')
   const [cards, setCards] = useState<Card[]>([])
   const [i, setI] = useState(0)
@@ -16,10 +17,18 @@ export default function App(){
 
   useEffect(()=>{
     try { WebApp.ready(); } catch {}
-    // Pull assignment from URL if present
-    const p = new URLSearchParams(location.search)
-    const a = p.get('assignment') || ''
-    if (a) setAssignmentId(a)
+    // Try to fetch assignments available to this user
+    fetch(`${API}/my-assignments`, { headers: { 'x-telegram-initdata': WebApp.initData || '' }})
+      .then(r=>r.json())
+      .then(d=>{
+        const list = d?.assignments || []
+        setMyAssignments(list)
+        if (list.length === 1) {
+          setAssignmentId(list[0].id);
+          loadQuiz(list[0].id)
+        }
+      })
+      .catch(()=>{})
   },[])
 
   const initData = useMemo(()=> WebApp.initData || '', [])
@@ -32,10 +41,11 @@ export default function App(){
     }
   }
 
-  async function loadQuiz(){
-    if (!assignmentId) return alert('Введите assignmentId')
+  async function loadQuiz(id?: string){
+    const target = id || assignmentId
+    if (!target) return
     await ensureMe()
-    const r = await fetch(`${API}/quiz/${assignmentId}`)
+    const r = await fetch(`${API}/quiz/${target}`)
     if(!r.ok){ alert('Задание не найдено'); return }
     const data = await r.json()
     setPackName(data.pack.name)
@@ -48,9 +58,9 @@ export default function App(){
   function pick(opt: string){
     const card = cards[i]
     const cur = (attempts[card.id] || 0) + 1
-    setAttempts(a => ({ ...a, [card.id]: cur }))
+  setAttempts((a: Record<string, number>) => ({ ...a, [card.id]: cur }))
     if (opt === card.en) {
-      setAnswers(ans => [...ans, { wordId: card.id, correctOnFirstTry: cur === 1, attempts: cur }])
+  setAnswers((ans: {wordId:string, correctOnFirstTry:boolean, attempts:number}[]) => [...ans, { wordId: card.id, correctOnFirstTry: cur === 1, attempts: cur }])
     }
   }
 
@@ -73,9 +83,15 @@ export default function App(){
       <h1 style={{ color:'#0ea5e9', textShadow:'2px 2px #fff' }}>Friends Game</h1>
       {cards.length === 0 && (
         <div style={panel}>
-          <p>Введите номер задания (assignmentId) или откройте ссылку от преподавателя.</p>
-          <input value={assignmentId} onChange={e=>setAssignmentId(e.target.value)} placeholder='assignment id' style={input} />
-          <button onClick={loadQuiz} style={btn}>Начать</button>
+          <p>Выберите тренировку:</p>
+          {myAssignments.length === 0 && <div style={{opacity:.7}}>Пока нет доступных заданий</div>}
+          <div style={{display:'grid', gap:8}}>
+            {myAssignments.map(a => (
+              <button key={a.id} onClick={()=>{ setAssignmentId(a.id); loadQuiz(a.id) }} style={{...btn, background:'#facc15', color:'#7a5300'}}>
+                {a.packName} {a.personal ? '👤' : '🌐'}
+              </button>
+            ))}
+          </div>
         </div>
       )}
       {cards.length>0 && (
