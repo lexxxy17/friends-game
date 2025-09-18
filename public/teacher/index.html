@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Friends Game — Преподаватель</title>
+  <style>
+    body{font-family:system-ui, sans-serif;max-width:960px;margin:24px auto;padding:0 16px}
+    header{display:flex;justify-content:space-between;align-items:center}
+    .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px;margin-top:16px}
+    section{border:1px solid #ddd;border-radius:8px;padding:12px}
+    input,select,button{margin:6px 0;padding:8px}
+    img{max-width:100%;height:auto}
+    .row{display:flex;gap:8px;align-items:center}
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Админка преподавателя</h1>
+    <a href="/">Домой</a>
+  </header>
+
+  <div class="grid">
+    <section>
+      <h2>Слова</h2>
+      <form id="wordForm">
+        <div class="row"><input name="ru" placeholder="Русское слово" required /></div>
+        <div class="row"><input name="en" placeholder="English" required /></div>
+        <div class="row"><input type="file" name="image" accept="image/*" /></div>
+        <button type="submit">Добавить слово</button>
+      </form>
+      <ul id="words"></ul>
+    </section>
+
+    <section>
+      <h2>Наборы</h2>
+      <div class="row"><input id="packName" placeholder="Название набора" /></div>
+      <div><label>Добавьте слова в набор:</label><div id="wordChoices"></div></div>
+      <button id="createPack">Создать набор</button>
+      <ul id="packs"></ul>
+    </section>
+
+    <section>
+      <h2>Ученики</h2>
+      <div class="row"><input id="studentName" placeholder="Имя ученика" /></div>
+      <div class="row"><input id="studentChat" placeholder="Telegram chatId (необязательно)" /></div>
+      <button id="createStudent">Создать ученика</button>
+      <ul id="students"></ul>
+    </section>
+
+    <section>
+      <h2>Назначения</h2>
+      <div class="row">
+        <select id="assignStudent"></select>
+        <select id="assignPack"></select>
+      </div>
+      <button id="createAssignment">Назначить</button>
+      <ul id="assignments"></ul>
+    </section>
+  </div>
+
+  <script>
+    const el = (sel) => document.querySelector(sel);
+    const listEl = (sel) => document.querySelector(sel);
+
+    async function loadWords() {
+      const res = await fetch('/api/words');
+      const words = await res.json();
+      const ul = el('#words');
+      ul.innerHTML = '';
+      const choices = el('#wordChoices');
+      choices.innerHTML = '';
+      words.forEach(w => {
+        const li = document.createElement('li');
+        li.innerHTML = `${w.ru} — <b>${w.en}</b> ${w.image ? `<br><img src="${w.image}" width="120"/>` : ''} <button data-id="${w.id}">Удалить</button>`;
+        li.querySelector('button').onclick = async () => {
+          await fetch('/api/words/'+w.id, { method: 'DELETE' });
+          loadWords(); loadPacks();
+        };
+        ul.appendChild(li);
+
+        const cb = document.createElement('label');
+        cb.style.display = 'inline-block'; cb.style.marginRight = '8px';
+        cb.innerHTML = `<input type="checkbox" value="${w.id}"> ${w.ru} / ${w.en}`;
+        choices.appendChild(cb);
+      });
+    }
+
+    async function loadPacks() {
+      const res = await fetch('/api/packs');
+      const packs = await res.json();
+      const ul = el('#packs'); ul.innerHTML = '';
+      const sel = el('#assignPack'); sel.innerHTML = '<option value="">Выберите набор</option>';
+      packs.forEach(p => {
+        const li = document.createElement('li');
+        li.innerHTML = `${p.name} (слова: ${p.wordIds.length}) <button data-id="${p.id}">Удалить</button>`;
+        li.querySelector('button').onclick = async () => { await fetch('/api/packs/'+p.id, { method: 'DELETE' }); loadPacks(); };
+        ul.appendChild(li);
+        const opt = document.createElement('option'); opt.value = p.id; opt.textContent = p.name; sel.appendChild(opt);
+      });
+    }
+
+    async function loadStudents() {
+      const res = await fetch('/api/students');
+      const students = await res.json();
+      const ul = el('#students'); ul.innerHTML = '';
+      const sel = el('#assignStudent'); sel.innerHTML = '<option value="">Без ученика (общий)</option>';
+      students.forEach(s => {
+        const li = document.createElement('li');
+        li.innerHTML = `${s.name} ${s.telegramChatId ? `(chatId: ${s.telegramChatId})` : ''} <button data-id="${s.id}">Удалить</button>`;
+        li.querySelector('button').onclick = async () => { await fetch('/api/students/'+s.id, { method: 'DELETE' }); loadStudents(); };
+        ul.appendChild(li);
+        const opt = document.createElement('option'); opt.value = s.id; opt.textContent = s.name; sel.appendChild(opt);
+      });
+    }
+
+    async function loadAssignments() {
+      const res = await fetch('/api/assignments');
+      const items = await res.json();
+      const ul = el('#assignments'); ul.innerHTML = '';
+      items.forEach(a => {
+        const li = document.createElement('li');
+        const link = `${location.origin}/student?assignment=${a.id}`;
+        li.innerHTML = `Назначение ${a.id} — pack:${a.packId} ${a.studentId ? 'для '+a.studentId : '(общий)'}<br><a href="${link}" target="_blank">Ссылка для ученика</a> <button data-id="${a.id}">Удалить</button>`;
+        li.querySelector('button').onclick = async () => { await fetch('/api/assignments/'+a.id, { method: 'DELETE' }); loadAssignments(); };
+        ul.appendChild(li);
+      });
+    }
+
+    el('#wordForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      const res = await fetch('/api/words', { method: 'POST', body: fd });
+      if (res.ok) { e.target.reset(); loadWords(); }
+    });
+
+    el('#createPack').onclick = async () => {
+      const name = el('#packName').value.trim();
+      const ids = Array.from(document.querySelectorAll('#wordChoices input:checked')).map(i => i.value);
+      if (!name || ids.length === 0) return alert('Введите имя и выберите слова');
+      await fetch('/api/packs', { method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify({ name, wordIds: ids }) });
+      el('#packName').value='';
+      document.querySelectorAll('#wordChoices input:checked').forEach(i=>i.checked=false);
+      loadPacks();
+    };
+
+    el('#createStudent').onclick = async () => {
+      const name = el('#studentName').value.trim();
+      const telegramChatId = el('#studentChat').value.trim();
+      if (!name) return alert('Введите имя');
+      await fetch('/api/students', { method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify({ name, telegramChatId: telegramChatId || null }) });
+      el('#studentName').value=''; el('#studentChat').value='';
+      loadStudents();
+    };
+
+    el('#createAssignment').onclick = async () => {
+      const studentId = el('#assignStudent').value || null;
+      const packId = el('#assignPack').value;
+      if (!packId) return alert('Выберите набор');
+      await fetch('/api/assignments', { method: 'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({ studentId, packId }) });
+      loadAssignments();
+    };
+
+    // initial load
+    loadWords(); loadPacks(); loadStudents(); loadAssignments();
+  </script>
+</body>
+</html>

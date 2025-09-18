@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Friends Game — Ученик</title>
+  <style>
+    body{font-family:system-ui, sans-serif;max-width:560px;margin:24px auto;padding:0 16px;text-align:center}
+    .card{border:1px solid #ddd;border-radius:12px;padding:16px}
+    img{max-width:100%;height:auto}
+    .options{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-top:12px}
+    button.option{padding:12px;border-radius:8px;border:1px solid #bbb;background:#f9f9f9;cursor:pointer}
+    .correct{background:#d1fae5}
+    .wrong{background:#fee2e2}
+    .hidden{display:none}
+  </style>
+</head>
+<body>
+  <h1>Тренировка</h1>
+  <div id="start" class="card">
+    <p>Откройте ссылку, полученную от преподавателя. В ней есть номер задания.</p>
+    <p><label>Assignment ID: <input id="assignInput" placeholder="введите или возьмите из URL"/></label></p>
+    <button id="loadBtn">Загрузить</button>
+  </div>
+
+  <div id="quiz" class="card hidden">
+    <h3 id="packName"></h3>
+    <div id="progress"></div>
+    <div id="imageWrap"><img id="img" alt=""/></div>
+    <div id="ru"></div>
+    <div class="options" id="options"></div>
+    <button id="nextBtn" class="hidden">Дальше</button>
+  </div>
+
+  <div id="finish" class="card hidden">
+    <h3>Готово!</h3>
+    <div id="score"></div>
+    <div><label>Ваше имя: <input id="studentName"/></label></div>
+    <button id="sendReport">Отправить преподавателю</button>
+    <p><a href="/">Домой</a></p>
+  </div>
+
+  <script>
+    const qs = new URLSearchParams(location.search);
+    const initialAssignment = qs.get('assignment') || '';
+    const assignInput = document.getElementById('assignInput');
+    assignInput.value = initialAssignment;
+
+    const state = { cards: [], i: 0, attempts: {}, answers: [] };
+
+    function show(id){ document.querySelectorAll('.card').forEach(c=>c.classList.add('hidden')); document.getElementById(id).classList.remove('hidden'); }
+
+    async function loadQuiz(id){
+      const res = await fetch('/api/quiz/'+id);
+      if(!res.ok){ alert('Не найдено задание'); return; }
+      const data = await res.json();
+      state.assignmentId = id; state.cards = data.cards; state.i = 0; state.attempts = {}; state.answers = [];
+      document.getElementById('packName').textContent = data.pack.name;
+      show('quiz');
+      renderCard();
+    }
+
+    function renderCard(){
+      const card = state.cards[state.i];
+      document.getElementById('progress').textContent = `${state.i+1} / ${state.cards.length}`;
+      document.getElementById('img').src = card.image || '';
+      document.getElementById('ru').textContent = card.ru;
+      const cont = document.getElementById('options'); cont.innerHTML='';
+      document.getElementById('nextBtn').classList.add('hidden');
+      state.attempts[card.id] = 0;
+      card.options.forEach(opt => {
+        const b = document.createElement('button'); b.className='option'; b.textContent = opt;
+        b.onclick = () => pick(opt);
+        cont.appendChild(b);
+      });
+    }
+
+    function pick(opt){
+      const card = state.cards[state.i];
+      state.attempts[card.id]++;
+      const buttons = Array.from(document.querySelectorAll('.option'));
+      if(opt === card.en){
+        buttons.forEach(b=>{ b.disabled = true; if(b.textContent===opt) b.classList.add('correct'); });
+        document.getElementById('nextBtn').classList.remove('hidden');
+        const attempts = state.attempts[card.id];
+        state.answers.push({ wordId: card.id, correctOnFirstTry: attempts===1, attempts });
+      } else {
+        const btn = buttons.find(b=>b.textContent===opt); if(btn) btn.classList.add('wrong'); btn.disabled = true;
+      }
+    }
+
+    document.getElementById('nextBtn').onclick = () => {
+      state.i++;
+      if(state.i >= state.cards.length){
+        const correct = state.answers.filter(a=>a.correctOnFirstTry).length;
+        const total = state.answers.length;
+        document.getElementById('score').textContent = `Правильно с первой попытки: ${correct} из ${total}`;
+        show('finish');
+      } else {
+        renderCard();
+      }
+    };
+
+    document.getElementById('loadBtn').onclick = () => {
+      const id = assignInput.value.trim(); if(!id) return alert('Введите ID');
+      loadQuiz(id);
+    };
+
+    document.getElementById('sendReport').onclick = async () => {
+      const studentName = document.getElementById('studentName').value.trim() || 'Без имени';
+      const res = await fetch('/api/report', { method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify({ assignmentId: state.assignmentId, studentName, answers: state.answers }) });
+      if(res.ok){ alert('Отправлено!'); location.href = '/'; }
+    };
+
+    if(initialAssignment) loadQuiz(initialAssignment);
+  </script>
+</body>
+</html>
