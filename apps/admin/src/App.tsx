@@ -24,13 +24,21 @@ export default function App(){
   }
 
   async function loadAll(){
-    const [w,p,s,a] = await Promise.all([
-      api('/words'), api('/packs'), api('/students'), api('/assignments')
-    ])
-    setWords(await w.json())
-    setPacks(await p.json())
-    setStudents(await s.json())
-    setAssignments(await a.json())
+    try {
+      const [w,p,s,a] = await Promise.all([
+        api('/words'), api('/packs'), api('/students'), api('/assignments')
+      ])
+      const wordsData = (w.ok ? await w.json() : []) || []
+      const packsData = (p.ok ? await p.json() : []) || []
+      const studentsData = (s.ok ? await s.json() : []) || []
+      const assignmentsData = (a.ok ? await a.json() : []) || []
+      setWords(Array.isArray(wordsData) ? wordsData : [])
+      setPacks(Array.isArray(packsData) ? packsData : [])
+      setStudents(Array.isArray(studentsData) ? studentsData : [])
+      setAssignments(Array.isArray(assignmentsData) ? assignmentsData : [])
+    } catch (e) {
+      alert('Ошибка загрузки API: ' + (e as Error).message)
+    }
   }
 
   useEffect(()=>{ loadAll() },[])
@@ -61,6 +69,16 @@ export default function App(){
     loadAll()
   }
 
+  async function sendToTelegram(assignmentId: string){
+    const r = await api(`/assignments/${assignmentId}/send`, { method:'POST' })
+    if (!r.ok) {
+      const t = await r.text()
+      alert('Ошибка отправки: '+t)
+    } else {
+      alert('Ссылка отправлена в Telegram ученику')
+    }
+  }
+
   return (
     <div style={{ padding: 16 }}>
       <h1 style={{ color:'#a855f7', textShadow:'2px 2px #fff' }}>Админка</h1>
@@ -72,7 +90,7 @@ export default function App(){
           <input type='file' ref={fileRef} style={input}/>
           <button onClick={addWord} style={btn}>Добавить</button>
           <ul>
-            {words.map(w=> (
+            {words.map((w)=> (
               <li key={w.id}>{w.ru} — <b>{w.en}</b> {w.image_url && <img src={w.image_url} width={80}/>}</li>
             ))}
           </ul>
@@ -119,7 +137,11 @@ export default function App(){
           </div>
           <ul>
             {assignments.map(a => (
-              <li key={a.id}>ID: {a.id} — pack:{a.pack_id} {a.student_id?`студент:${a.student_id}`:'(общий)'} — ссылка: <code>{`/student?assignment=${a.id}`}</code></li>
+              <li key={a.id}>ID: {a.id} — pack:{a.pack_id} {a.student_id?`студент:${a.student_id}`:'(общий)'} — ссылка: <code>{`/student?assignment=${a.id}`}</code>
+                {a.student_id && (
+                  <button onClick={()=>sendToTelegram(a.id)} style={{...miniBtn, marginLeft:8}}>Отправить в Telegram</button>
+                )}
+              </li>
             ))}
           </ul>
         </section>
