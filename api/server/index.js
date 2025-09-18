@@ -7,7 +7,15 @@ const { createClient } = require('@supabase/supabase-js');
 const fetch = require('node-fetch');
 
 const app = express();
-app.use(cors());
+// Configure CORS to allow custom headers used by clients and handle preflight
+const corsOptions = {
+  origin: true,
+  credentials: true,
+  methods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'x-admin-key', 'x-telegram-initdata']
+};
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
 app.use(express.json());
 
 const PORT = process.env.API_PORT || 4000;

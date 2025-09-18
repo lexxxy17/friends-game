@@ -18,7 +18,9 @@ export default function App(){
   useEffect(()=>{
     try { WebApp.ready(); } catch {}
     // Try to fetch assignments available to this user
-    fetch(`${API}/my-assignments`, { headers: { 'x-telegram-initdata': WebApp.initData || '' }})
+    const headers: Record<string, string> = {}
+    if (WebApp.initData) headers['x-telegram-initdata'] = WebApp.initData
+    fetch(`${API}/my-assignments`, { headers })
       .then(r=>r.json())
       .then(d=>{
         const list = d?.assignments || []
@@ -34,6 +36,7 @@ export default function App(){
   const initData = useMemo(()=> WebApp.initData || '', [])
 
   async function ensureMe(){
+    if (!initData) return
     const res = await fetch(`${API}/me`, { headers: { 'x-telegram-initdata': initData }})
     if (res.ok) {
       const me = await res.json()
